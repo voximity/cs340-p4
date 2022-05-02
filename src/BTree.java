@@ -14,6 +14,16 @@ public class BTree {
     private long root;
     private long free;
 
+    private class SplitResult {
+        private BTreeNode node;
+        private int middle;
+
+        public SplitResult(BTreeNode node, int middle) {
+            this.node = node;
+            this.middle = middle;
+        }
+    }
+
     private class BTreeNode {
         private int count;
         private int[] keys;
@@ -31,11 +41,11 @@ public class BTree {
             address = addr;
             f.seek(addr);
             count = f.readInt();
-            keys = new int[order - 1];
-            children = new long[order];
-            for (int i = 0; i < keys.length; i++)
+            keys = new int[order];
+            children = new long[order + 1];
+            for (int i = 0; i < order - 1; i++)
                 keys[i] = f.readInt();
-            for (int i = 0; i < children.length; i++)
+            for (int i = 0; i < order; i++)
                 children[i] = f.readLong();
         }
 
@@ -69,6 +79,71 @@ public class BTree {
                 if (keys[i] == key)
                     return true;
             return false;
+        }
+
+        private boolean isLeaf() {
+            return count < 0;
+        }
+
+        private int count() {
+            return Math.abs(count);
+        }
+
+        private void insertKeyAddr(int key, long val) {
+            int i = 0;
+            while (i < count() && key > keys[i])
+                i++;
+
+            for (int j = count() - 1; j >= i; j--) {
+                keys[j + 1] = keys[j];
+                children[j + 1] = children[j];
+            }
+
+            keys[i] = key;
+            children[i] = val;
+
+            count = -(count() + 1);
+        }
+
+        private BTreeNode splitLeaf() {
+            if (!isLeaf())
+                return null;
+
+            int al = (int) Math.floor(order / 2.0);
+            int bl = (int) Math.ceil(order / 2.0);
+
+            int[] newKeys = new int[order];
+            long[] newChildren = new long[order + 1];
+
+            for (int i = 0; i < bl; i++) {
+                newKeys[i] = keys[al + i];
+                newChildren[i] = children[al + i];
+            }
+
+            count = -al;
+            BTreeNode split = new BTreeNode(-bl, newKeys, newChildren);
+            return split;
+        }
+
+        private SplitResult splitBranch() {
+            if (isLeaf())
+                return null;
+
+            int l = order / 2;
+            int al = l;
+            int bl = order - l - 1;
+
+            int[] newKeys = new int[order];
+            long[] newChildren = new long[order + 1];
+
+            for (int i = 0; i < bl; i++) {
+                newKeys[i] = keys[al + 1 + i];
+                newChildren[i] = children[al + 1 + i];
+            }
+
+            count = -al;
+            BTreeNode split = new BTreeNode(-bl, newKeys, newChildren);
+            return new SplitResult(split, keys[l]);
         }
     }
 
@@ -123,7 +198,81 @@ public class BTree {
             return false;
         }
 
+        boolean split = false;
         Stack<BTreeNode> path = searchPath(key);
+        BTreeNode node = path.pop();
+
+        int val = 0;
+        long loc = 0;
+
+        if (node.hasKey(key))
+            return false;
+
+        if (node.count() < order - 1) {
+            // insert key into the node
+            node.insertKeyAddr(key, addr);
+
+            // write the node to the file
+            node.write();
+
+            // set split to false
+            split = false;
+        } else {
+            node.insertKeyAddr(key, addr);
+
+            // split the values up
+            BTreeNode newNode = node.splitLeaf();
+
+            // let val be the smallest value in newnode
+            val = newNode.keys[0];
+
+            // write node to the file
+            node.write();
+
+            // write newnode into the file
+            newNode.write(nextFree());
+
+            // let loc be the address in the file of newnode
+            loc = newNode.address;
+
+            // set split to true
+            split = true;
+        }
+
+        while (!path.empty() && split) {
+            node = path.pop();
+            if (node.count() < order - 1) {
+                // there's room for a new value
+                node.insertKeyAddr(val, loc);
+
+                // write the node into the file
+                node.write();
+
+                // set split to false
+                split = false;
+            } else {
+                // split the node
+                SplitResult splitRes = node.splitBranch();
+
+                // let newnode be the split node
+                BTreeNode newNode = splitRes.node;
+
+                // let newVal be the middle value
+                int newVal = splitRes.middle;
+
+                // write the nodes
+                node.write();
+                newNode.write(nextFree());
+
+                // update loc and val
+                loc = newNode.address;
+                val = newVal;
+            }
+        }
+
+        if (split) {
+            // the root was split
+        }
     }
 
     public long remove(int key) {
