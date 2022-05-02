@@ -141,8 +141,8 @@ public class BTree {
                 newChildren[i] = children[al + 1 + i];
             }
 
-            count = -al;
-            BTreeNode split = new BTreeNode(-bl, newKeys, newChildren);
+            count = al;
+            BTreeNode split = new BTreeNode(bl, newKeys, newChildren);
             return new SplitResult(split, keys[l]);
         }
     }
@@ -183,6 +183,12 @@ public class BTree {
         long cur = free;
         free = new BTreeNode(free).count;
         return cur;
+    }
+
+    private void setRoot(long root) throws IOException {
+        this.root = root;
+        f.seek(0);
+        f.writeLong(root);
     }
 
     public boolean insert(int key, long addr) throws IOException {
@@ -272,6 +278,14 @@ public class BTree {
 
         if (split) {
             // the root was split
+            int[] newKeys = new int[order];
+            long[] newChildren = new long[order + 1];
+            newChildren[0] = root;
+            newKeys[0] = val;
+            newChildren[1] = loc;
+            BTreeNode newNode = new BTreeNode(1, newKeys, newChildren);
+            newNode.write(nextFree());
+            setRoot(newNode.address);
         }
     }
 
