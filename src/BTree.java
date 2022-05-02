@@ -90,19 +90,20 @@ public class BTree {
         }
 
         private void insertKeyAddr(int key, long val) {
+            int branchOffset = !isLeaf() ? 1 : 0;
             int i = 0;
             while (i < count() && key > keys[i])
                 i++;
 
             for (int j = count() - 1; j >= i; j--) {
                 keys[j + 1] = keys[j];
-                children[j + 1] = children[j];
+                children[j + 1 + branchOffset] = children[j + branchOffset];
             }
 
             keys[i] = key;
-            children[i] = val;
+            children[i + branchOffset] = val;
 
-            count = -(count() + 1);
+            count = isLeaf() ? -(count() + 1) : count() + 1;
         }
 
         private BTreeNode splitLeaf() {
@@ -257,6 +258,8 @@ public class BTree {
                 // set split to false
                 split = false;
             } else {
+                node.insertKeyAddr(val, loc);
+
                 // split the node
                 SplitResult splitRes = node.splitBranch();
 
@@ -287,14 +290,25 @@ public class BTree {
             newNode.write(nextFree());
             setRoot(newNode.address);
         }
+
+        return true;
     }
 
-    public long remove(int key) {
+    public long remove(int key) throws IOException {
         /*
          * If the key is in the Btree, remove the key and return the address of the
          * row
          * return 0 if the key is not found in the B+tree
          */
+
+        boolean tooSmall = false;
+        Stack<BTreeNode> path = searchPath(key);
+        BTreeNode node = path.pop();
+        if (node.hasKey(key)) {
+            // remove it
+        } else {
+            return 0;
+        }
     }
 
     private Stack<BTreeNode> searchPath(int k) throws IOException {
