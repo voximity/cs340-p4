@@ -71,7 +71,7 @@ public class BTree {
         }
 
         private long sibling() {
-            return children[children.length - 1];
+            return children[order - 1];
         }
 
         private boolean hasKey(int key) {
@@ -145,6 +145,25 @@ public class BTree {
             count = al;
             BTreeNode split = new BTreeNode(bl, newKeys, newChildren);
             return new SplitResult(split, keys[l]);
+        }
+
+        private void removeKey(int key) {
+            int c = count();
+            int branchOffset = isLeaf() ? 0 : 1;
+            for (int i = 0; i < c; i++) {
+                if (keys[i] == key) {
+                    for (int j = i; j < c; j++) {
+                        keys[j] = keys[j + 1];
+                        children[j + branchOffset] = children[j + 1 + branchOffset];
+                    }
+                    count = isLeaf() ? -(c - 1) : c - 1;
+                    return;
+                }
+            }
+        }
+
+        private boolean tooSmall() {
+            return count() < Math.ceil(order / 2.0) - 1;
         }
     }
 

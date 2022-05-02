@@ -107,7 +107,7 @@ public class DBTable {
 
         /*
          * If a row with the key is not in the table, the row is added and the method
-         * returns true otherwise the row is not added and the method returns false.
+         * returns true otherwise the row is not added and the metgit hod returns false.
          * The method must use the B+tree to determine if a row with the key exists.
          * If the row is added the key is also added into the B+tree.
          */
