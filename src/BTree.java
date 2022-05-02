@@ -265,6 +265,11 @@ public class BTree {
             split = true;
         }
 
+        BTreeNode parentNode = null;
+        if (!path.empty()) {
+            parentNode = path.lastElement();
+        }
+
         while (!path.empty() && split) {
             node = path.pop();
             if (node.count() < order - 1) {
@@ -310,6 +315,22 @@ public class BTree {
             setRoot(newNode.address);
         }
 
+        if (parentNode != null) {
+            // update siblings
+            int last = parentNode.count;
+            for (int i = 0; i <= last; i++) {
+                if (i != last) {
+                    // point to next child
+                    BTreeNode child = new BTreeNode(parentNode.children[i]);
+                    child.children[order] = parentNode.children[i + 1];
+                    child.write();
+                } else {
+                    // point to NONE
+
+                }
+            }
+        }
+
         return true;
     }
 
@@ -325,8 +346,20 @@ public class BTree {
         BTreeNode node = path.pop();
         if (node.hasKey(key)) {
             // remove it
+            node.removeKey(key);
+
+            // if the node is too small set tooSmall to true
+            if (node.tooSmall()) {
+                tooSmall = true;
+            }
         } else {
             return 0;
+        }
+
+        while (!path.empty() && tooSmall) {
+            BTreeNode child = node;
+            node = path.pop();
+            // check neighbors of child
         }
     }
 
