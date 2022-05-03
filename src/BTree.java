@@ -64,8 +64,9 @@ public class BTree {
         }
 
         private int childIdx(int key) {
+            int c = count();
             int i = 0;
-            while (i < order - 1 && key > keys[i])
+            while (i < c && key >= keys[i])
                 i++;
             return i;
         }
@@ -92,7 +93,7 @@ public class BTree {
         private void insertKeyAddr(int key, long val) {
             int branchOffset = !isLeaf() ? 1 : 0;
             int i = 0;
-            while (i < count() && key > keys[i])
+            while (i < count() && key >= keys[i])
                 i++;
 
             for (int j = count() - 1; j >= i; j--) {
@@ -141,6 +142,7 @@ public class BTree {
                 newKeys[i] = keys[al + 1 + i];
                 newChildren[i] = children[al + 1 + i];
             }
+            newChildren[bl] = children[order];
 
             count = al;
             BTreeNode split = new BTreeNode(bl, newKeys, newChildren);
@@ -165,6 +167,15 @@ public class BTree {
         private boolean tooSmall() {
             return count() < Math.ceil(order / 2.0) - 1;
         }
+
+        /**
+         * Get the, at most, 2 neighboring indices of the key matching the address
+         * given.
+         */
+        // private int[] neighborIndices(long childAddr) {
+        // int i;
+        // for (i = 0; i < count(); )
+        // }
     }
 
     public BTree(String filename, int bsize) throws IOException {
@@ -221,12 +232,20 @@ public class BTree {
 
         if (root == NONE) {
             // need to create a root
-            return false;
+            int[] keys = new int[order];
+            long[] children = new long[order + 1];
+            keys[0] = key;
+            children[0] = addr;
+            BTreeNode node = new BTreeNode(-1, keys, children);
+            node.write(nextFree());
+            setRoot(node.address);
+            return true;
         }
 
         boolean split = false;
         Stack<BTreeNode> path = searchPath(key);
         BTreeNode node = path.pop();
+        System.out.println("Attempting to insert into node @ " + node.address);
 
         int val = 0;
         long loc = 0;
@@ -263,11 +282,6 @@ public class BTree {
 
             // set split to true
             split = true;
-        }
-
-        BTreeNode parentNode = null;
-        if (!path.empty()) {
-            parentNode = path.lastElement();
         }
 
         while (!path.empty() && split) {
@@ -315,22 +329,6 @@ public class BTree {
             setRoot(newNode.address);
         }
 
-        if (parentNode != null) {
-            // update siblings
-            int last = parentNode.count;
-            for (int i = 0; i <= last; i++) {
-                if (i != last) {
-                    // point to next child
-                    BTreeNode child = new BTreeNode(parentNode.children[i]);
-                    child.children[order] = parentNode.children[i + 1];
-                    child.write();
-                } else {
-                    // point to NONE
-
-                }
-            }
-        }
-
         return true;
     }
 
@@ -353,7 +351,7 @@ public class BTree {
                 tooSmall = true;
             }
         } else {
-            return 0;
+            return NONE;
         }
 
         while (!path.empty() && tooSmall) {
@@ -361,6 +359,8 @@ public class BTree {
             node = path.pop();
             // check neighbors of child
         }
+
+        return 0;
     }
 
     private Stack<BTreeNode> searchPath(int k) throws IOException {
@@ -434,7 +434,7 @@ public class BTree {
 
         if (node.count < 0) {
             int count = -node.count;
-            System.out.print("- (leaf " + node.address + ") count " + count + ", keys: ");
+            System.out.print("- (leaf @ " + node.address + ") count " + count + ", keys: ");
             for (int i = 0; i < count; i++) {
                 System.out.print(node.keys[i]);
                 if (i < count - 1)
@@ -443,7 +443,7 @@ public class BTree {
             System.out.println();
         } else {
             int count = node.count;
-            System.out.print("> (branch " + node.address + ") count " + count + ", keys:");
+            System.out.print("> (branch @ " + node.address + ") count " + count + ", keys: ");
             for (int i = 0; i < count; i++) {
                 System.out.print(node.keys[i]);
                 if (i < count - 1)
@@ -467,5 +467,20 @@ public class BTree {
     public void close() throws IOException {
         // close the B+Tree. the tree should not be accessed after close is called
         f.close();
+    }
+
+    public static void main(String[] args) throws IOException {
+        BTree myTree = new BTree("test_btree", 60);
+        Scanner scanner = new Scanner(System.in);
+
+        while (true) {
+            System.out.print("Key to insert: ");
+            int key = Integer.parseInt(scanner.nextLine());
+            int addr = (int) (Math.random() * 100);
+            System.out.println("Inserting key " + key + ", addr " + addr);
+            myTree.insert(key, addr);
+            myTree.print();
+            System.out.println("");
+        }
     }
 }
