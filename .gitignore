@@ -1,2 +1,5 @@
 bin/
 lib/
+*.btree
+test_btree
+/t*

@@ -55,6 +55,47 @@ public class DBTable {
                 for (int j = 0; j < otherFieldLengths[i]; j++)
                     rows.writeChar(otherFields[i][j]);
         }
+
+        private LinkedList<String> fields() {
+            LinkedList<String> list = new LinkedList<>();
+
+            for (int i = 0; i < numOtherFields; i++) {
+                StringBuilder b = new StringBuilder();
+                for (int j = 0; j < otherFieldLengths[i]; j++) {
+                    if (otherFields[i][j] == '\0')
+                        break;
+
+                    b.append(otherFields[i][j]);
+                }
+                list.add(b.toString());
+            }
+
+            return list;
+        }
+    }
+
+    private long nextFree() throws IOException {
+        if (free == NONE)
+            return rows.length();
+
+        long c = free;
+        free = new Row(free).keyField;
+        return c;
+    }
+
+    private long peekNextFree() throws IOException {
+        if (free == NONE)
+            return rows.length();
+
+        return free;
+    }
+
+    private void addToFree(Row row) throws IOException {
+        row.keyField = (int) free;
+        row.write();
+        free = row.addr;
+        rows.seek(4 + 4 * numOtherFields);
+        rows.writeLong(free);
     }
 
     public DBTable(String filename, int[] fL, int bsize) throws IOException {
@@ -102,21 +143,26 @@ public class DBTable {
         btree = new BTree(filename + ".btree");
     }
 
-    public boolean insert(int key, char[][] fields) {
+    public boolean insert(int key, char[][] fields) throws IOException {
         // PRE: the length of each row is fields matches the expected length
 
         /*
          * If a row with the key is not in the table, the row is added and the method
-         * returns true otherwise the row is not added and the metgit hod returns
+         * returns true otherwise the row is not added and the method returns
          * false.
          * The method must use the B+tree to determine if a row with the key exists.
          * If the row is added the key is also added into the B+tree.
          */
 
+        if (btree.insert(key, peekNextFree())) {
+            new Row(key, fields).write(nextFree());
+            return true;
+        }
+
         return false;
     }
 
-    public boolean remove(int key) {
+    public boolean remove(int key) throws IOException {
         /*
          * If a row with the key is in the table it is removed and true is returned
          * otherwise false is returned.
@@ -125,10 +171,16 @@ public class DBTable {
          * If the row is deleted the key must be deleted from the B+Tree
          */
 
+        long removed = btree.remove(key);
+        if (removed != NONE) {
+            addToFree(new Row(removed));
+            return true;
+        }
+
         return false;
     }
 
-    public LinkedList<String> search(int key) {
+    public LinkedList<String> search(int key) throws IOException {
         /*
          * If a row with the key is found in the table return a list of the other
          * fields
@@ -139,10 +191,14 @@ public class DBTable {
          * The method must use the equality search in B+Tree
          */
 
-        return null;
+        long addr = btree.search(key);
+        if (addr != NONE)
+            return new Row(addr).fields();
+
+        return new LinkedList<>();
     }
 
-    public LinkedList<LinkedList<String>> rangeSearch(int low, int high) {
+    public LinkedList<LinkedList<String>> rangeSearch(int low, int high) throws IOException {
         // PRE: low <= high
         /*
          * For each row with a key that is in the range low to high inclusive a list
@@ -152,12 +208,42 @@ public class DBTable {
          * The method must use the range search in B+Tree
          */
 
-        return null;
+        LinkedList<Long> range = btree.rangeSearch(low, high);
+        LinkedList<LinkedList<String>> list = new LinkedList<>();
+        Iterator<Long> iter = range.iterator();
+
+        while (iter.hasNext()) {
+            Row row = new Row(iter.next());
+            LinkedList<String> fields = row.fields();
+            fields.addFirst(Integer.toString(row.keyField));
+
+            list.add(fields);
+        }
+
+        return list;
     }
 
-    public void print() {
+    public void print() throws IOException {
         // Print the rows to standard output in ascending order (based on the keys)
         // One row per line
+
+        LinkedList<Long> range = btree.rangeSearch(Integer.MIN_VALUE, Integer.MAX_VALUE);
+        Iterator<Long> iter = range.iterator();
+
+        while (iter.hasNext()) {
+            Row row = new Row(iter.next());
+            Iterator<String> fieldIter = row.fields().iterator();
+            System.out.printf("%5d) ", row.keyField);
+            int i = 0;
+            while (fieldIter.hasNext()) {
+                System.out.printf("%-" + otherFieldLengths[i++] + "s ", fieldIter.next());
+            }
+            System.out.println();
+        }
+    }
+
+    public void printBTree() throws IOException {
+        btree.print();
     }
 
     public void close() throws IOException {
