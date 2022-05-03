@@ -14,6 +14,14 @@ public class BTree {
     private long root;
     private long free;
 
+    private int minKeys() {
+        return (int) Math.ceil(order / 2.0) - 1;
+    }
+
+    private int minChildren() {
+        return minKeys() + 1;
+    }
+
     private class SplitResult {
         private BTreeNode node;
         private int middle;
@@ -72,7 +80,7 @@ public class BTree {
         }
 
         private long sibling() {
-            return children[order - 1];
+            return children[order];
         }
 
         private boolean hasKey(int key) {
@@ -165,17 +173,28 @@ public class BTree {
         }
 
         private boolean tooSmall() {
-            return count() < Math.ceil(order / 2.0) - 1;
+            return count() < minKeys();
         }
 
         /**
          * Get the, at most, 2 neighboring indices of the key matching the address
          * given.
          */
-        // private int[] neighborIndices(long childAddr) {
-        // int i;
-        // for (i = 0; i < count(); )
-        // }
+        private int[] neighborIndices(long childAddr) {
+            int i;
+            for (i = 0; i <= count(); i++)
+                if (children[i] == childAddr)
+                    break;
+
+            if (i > 0 && i < count())
+                return new int[] { i - 1, i + 1 };
+            else if (i > 0)
+                return new int[] { i - 1 };
+            else if (i < count())
+                return new int[] { i + 1 };
+            else
+                return new int[0];
+        }
     }
 
     public BTree(String filename, int bsize) throws IOException {
@@ -357,7 +376,31 @@ public class BTree {
         while (!path.empty() && tooSmall) {
             BTreeNode child = node;
             node = path.pop();
+
             // check neighbors of child
+            // `node` is guaranteed to be a branch
+            int[] neighborIndices = node.neighborIndices(child.address);
+            BTreeNode borrowFrom = null;
+
+            if (neighborIndices.length != 0) {
+                for (int i = 0; i < neighborIndices.length; i++) {
+                    BTreeNode neighbor = new BTreeNode(node.children[neighborIndices[i]]);
+                    if (neighbor.count() > minKeys()) {
+                        borrowFrom = neighbor;
+                        break;
+                    }
+                }
+            }
+
+            if (borrowFrom != null) {
+                // perform the borrow
+                boolean borrowFromLeft = borrowFrom.keys[0] < child.keys[0];
+                while (borrowFrom.count() - child.count() > 1) {
+                    // borrow
+                }
+            } else {
+                // combine
+            }
         }
 
         return 0;
