@@ -83,6 +83,10 @@ public class BTree {
             return children[order];
         }
 
+        private void setSibling(long to) {
+            children[order] = to;
+        }
+
         private boolean hasKey(int key) {
             for (int i = 0; i < Math.abs(count); i++)
                 if (keys[i] == key)
@@ -157,7 +161,7 @@ public class BTree {
             return new SplitResult(split, keys[l]);
         }
 
-        private void removeKey(int key) {
+        private long removeKey(int key) {
             int c = count();
             int branchOffset = isLeaf() ? 0 : 1;
             for (int i = 0; i < c; i++) {
@@ -167,33 +171,13 @@ public class BTree {
                         children[j + branchOffset] = children[j + 1 + branchOffset];
                     }
                     count = isLeaf() ? -(c - 1) : c - 1;
-                    return;
+                    return children[i + branchOffset];
                 }
             }
         }
 
         private boolean tooSmall() {
             return count() < minKeys();
-        }
-
-        /**
-         * Get the, at most, 2 neighboring indices of the key matching the address
-         * given.
-         */
-        private int[] neighborIndices(long childAddr) {
-            int i;
-            for (i = 0; i <= count(); i++)
-                if (children[i] == childAddr)
-                    break;
-
-            if (i > 0 && i < count())
-                return new int[] { i - 1, i + 1 };
-            else if (i > 0)
-                return new int[] { i - 1 };
-            else if (i < count())
-                return new int[] { i + 1 };
-            else
-                return new int[0];
         }
     }
 
@@ -231,7 +215,7 @@ public class BTree {
             return f.length();
 
         long cur = free;
-        free = new BTreeNode(free).count;
+        free = new BTreeNode(free).children[0];
         return cur;
     }
 
@@ -239,6 +223,14 @@ public class BTree {
         this.root = root;
         f.seek(0);
         f.writeLong(root);
+    }
+
+    private void addToFree(BTreeNode node) throws IOException {
+        node.children[0] = free;
+        free = node.address;
+        node.write();
+        f.seek(8);
+        f.writeLong(free);
     }
 
     public boolean insert(int key, long addr) throws IOException {
@@ -286,6 +278,10 @@ public class BTree {
 
             // split the values up
             BTreeNode newNode = node.splitLeaf();
+
+            // update sibling relationship
+            newNode.setSibling(node.sibling());
+            node.setSibling(newNode.address);
 
             // let val be the smallest value in newnode
             val = newNode.keys[0];
@@ -351,6 +347,113 @@ public class BTree {
         return true;
     }
 
+    private void borrowFromRight(BTreeNode borrowTo, BTreeNode borrowFrom, BTreeNode parent) throws IOException {
+        if (borrowTo.isLeaf()) {
+            // borrowing between leaves
+
+            // grab the first child from borrowFrom
+            int firstKey = borrowFrom.keys[0];
+            long firstChild = borrowFrom.children[0];
+            for (int i = 0; i < borrowFrom.count() - 2; i++) {
+                borrowFrom.keys[i] = borrowFrom.keys[i + 1];
+                borrowFrom.children[i] = borrowFrom.children[i + 1];
+            }
+            borrowFrom.count = -(borrowFrom.count() - 1);
+
+            // put it into borrowTo
+            borrowTo.insertKeyAddr(firstKey, firstChild);
+
+            // update borrowFrom in parent
+            for (int i = 1; i <= parent.count; i++) {
+                if (parent.children[i] == borrowFrom.address) {
+                    parent.keys[i - 1] = firstKey;
+                    break;
+                }
+            }
+
+            borrowFrom.write();
+            borrowTo.write();
+            parent.write();
+        } else {
+            // borrowing between branches
+
+            long firstChild = borrowFrom.children[0];
+            for (int i = 0; i < borrowFrom.count() - 1; i++) {
+                borrowFrom.keys[i] = borrowFrom.keys[i + 1];
+                borrowFrom.children[i] = borrowFrom.children[i + 1];
+            }
+
+            BTreeNode firstChildNode = new BTreeNode(firstChild);
+
+            borrowTo.insertKeyAddr(firstChildNode.keys[0], firstChild);
+
+            // update borrowFrom in the parent
+            for (int i = 1; i <= parent.count; i++) {
+                if (parent.children[i] == borrowFrom.address) {
+                    parent.keys[i - 1] = borrowFrom.keys[0];
+                    break;
+                }
+            }
+
+            borrowFrom.write();
+            borrowTo.write();
+            parent.write();
+        }
+    }
+
+    private void borrowFromLeft(BTreeNode borrowTo, BTreeNode borrowFrom, BTreeNode parent) throws IOException {
+        if (borrowTo.isLeaf()) {
+            // borrowing between leaves
+
+            // grab the last child from borrowFrom
+            int lastKey = borrowFrom.keys[borrowFrom.count() - 1];
+            long lastChild = borrowFrom.children[borrowFrom.count() - 1];
+            borrowFrom.count = -(borrowFrom.count() - 1);
+
+            // put it into borrowTo
+            borrowTo.insertKeyAddr(lastKey, lastChild);
+
+            // update it in parent
+            for (int i = 1; i <= parent.count(); i++) {
+                if (parent.children[i] == borrowTo.address) {
+                    parent.keys[i - 1] = lastKey;
+                    break;
+                }
+            }
+
+            borrowFrom.write();
+            borrowTo.write();
+            parent.write();
+        } else {
+            // borrowing between branches
+
+            long lastChild = borrowFrom.children[borrowFrom.count()];
+            borrowFrom.count -= 1;
+
+            for (int i = borrowTo.keys.length - 2; i >= 0; i--) {
+                borrowTo.keys[i + 1] = borrowTo.keys[i];
+            }
+            for (int i = borrowTo.children.length - 2; i >= 0; i--) {
+                borrowTo.children[i + 1] = borrowTo.children[i];
+            }
+
+            borrowTo.keys[0] = new BTreeNode(borrowTo.children[1]).keys[0];
+            borrowTo.children[0] = lastChild;
+            borrowTo.count += 1;
+
+            for (int i = 1; i <= parent.count(); i++) {
+                if (parent.children[i] == borrowTo.address) {
+                    parent.keys[i - 1] = borrowTo.keys[0];
+                    break;
+                }
+            }
+
+            borrowFrom.write();
+            borrowTo.write();
+            parent.write();
+        }
+    }
+
     public long remove(int key) throws IOException {
         /*
          * If the key is in the Btree, remove the key and return the address of the
@@ -358,12 +461,13 @@ public class BTree {
          * return 0 if the key is not found in the B+tree
          */
 
+        long removedAddr = NONE;
         boolean tooSmall = false;
         Stack<BTreeNode> path = searchPath(key);
         BTreeNode node = path.pop();
         if (node.hasKey(key)) {
             // remove it
-            node.removeKey(key);
+            removedAddr = node.removeKey(key);
 
             // if the node is too small set tooSmall to true
             if (node.tooSmall()) {
@@ -379,31 +483,58 @@ public class BTree {
 
             // check neighbors of child
             // `node` is guaranteed to be a branch
-            int[] neighborIndices = node.neighborIndices(child.address);
-            BTreeNode borrowFrom = null;
+            int i;
+            for (i = 0; i <= node.count(); i++)
+                if (node.children[i] == child.address)
+                    break;
 
-            if (neighborIndices.length != 0) {
-                for (int i = 0; i < neighborIndices.length; i++) {
-                    BTreeNode neighbor = new BTreeNode(node.children[neighborIndices[i]]);
-                    if (neighbor.count() > minKeys()) {
-                        borrowFrom = neighbor;
-                        break;
-                    }
+            BTreeNode borrowFrom = null;
+            if (i > 0) {
+                BTreeNode leftN = new BTreeNode(node.children[i - 1]);
+                if (leftN.count() > minKeys()) {
+                    borrowFrom = leftN;
+                }
+            }
+            if (i < node.count()) {
+                BTreeNode rightN = new BTreeNode(node.children[i + 1]);
+                if (rightN.count() > minKeys()) {
+                    borrowFrom = rightN;
                 }
             }
 
             if (borrowFrom != null) {
                 // perform the borrow
-                boolean borrowFromLeft = borrowFrom.keys[0] < child.keys[0];
-                while (borrowFrom.count() - child.count() > 1) {
-                    // borrow
+                if (borrowFrom.keys[0] < child.keys[0]) {
+                    borrowFromLeft(child, borrowFrom, node);
+                } else {
+                    // borrowing from right neighbor
+                    borrowFromRight(child, borrowFrom, node);
                 }
+                tooSmall = false;
             } else {
                 // combine
+                if (i > 0) {
+                    // merge with left node
+
+                } else if (i < node.count()) {
+                    // merge with right node
+
+                }
+
+                if (node.count() >= minKeys()) {
+                    tooSmall = false;
+                }
             }
         }
 
-        return 0;
+        if (tooSmall) {
+            // root has been split
+            BTreeNode rootNode = new BTreeNode(root);
+            setRoot(rootNode.children[0]);
+            addToFree(rootNode);
+        }
+
+        return removedAddr;
     }
 
     private Stack<BTreeNode> searchPath(int k) throws IOException {
