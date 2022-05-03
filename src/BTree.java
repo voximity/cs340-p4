@@ -568,60 +568,6 @@ public class BTree {
         }
     }
 
-    private void mergeIntoRight(BTreeNode source, BTreeNode dest, BTreeNode parent) throws IOException {
-        if (source.isLeaf()) {
-            if (debug)
-                System.out.println("Leaf merging into right");
-
-            // TODO: make the right node merge into the left
-            // TODO: i.e. merge dest into source, remove dest
-
-            // insert all source keys into the destination
-            // for (int i = 0; i < source.count(); i++) {
-            // dest.insertKeyAddr(source.keys[i], source.children[i]);
-            // }
-
-            // // remove source from the parent
-            // parent.removeKeyRightOf(source.address);
-
-            // // add source to the free list
-            // addToFree(source);
-
-            // // write out dest and parent
-            // dest.write();
-            // parent.write();
-
-            mergeIntoLeft(dest, source, parent);
-        } else {
-            if (debug)
-                System.out.println("Branch merging into right");
-
-            // get the key used to refer to the dest
-            int key = parent.getKeyForChild(dest.address);
-
-            // insert all key/addr pairs past index 0 into dest
-            for (int i = 1; i < source.count(); i++) {
-                dest.insertKeyAddr(source.keys[i], source.children[i]);
-            }
-
-            // insert the far left catchall child as an actual key in the node
-            dest.insertKeyAddr(key, dest.children[0]);
-
-            // the new far left catchall child will be what the source node's was
-            dest.children[0] = source.children[0];
-
-            // remove source from the parent
-            parent.removeKeyRightOf(source.address);
-
-            // add source to the free list
-            addToFree(source);
-
-            // write out dest and parent
-            dest.write();
-            parent.write();
-        }
-    }
-
     public long remove(int key) throws IOException {
         /*
          * If the key is in the Btree, remove the key and return the address of the
@@ -692,7 +638,7 @@ public class BTree {
                     mergeIntoLeft(child, new BTreeNode(node.children[i - 1]), node);
                 } else if (i < node.count()) {
                     // merge with right node
-                    mergeIntoRight(child, new BTreeNode(node.children[i + 1]), node);
+                    mergeIntoLeft(new BTreeNode(node.children[i + 1]), child, node);
                 }
 
                 if (node.count() >= minKeys()) {

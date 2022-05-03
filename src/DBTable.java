@@ -79,7 +79,8 @@ public class DBTable {
             return rows.length();
 
         long c = free;
-        free = new Row(free).keyField;
+        rows.seek(free);
+        free = rows.readLong();
         return c;
     }
 
@@ -91,8 +92,8 @@ public class DBTable {
     }
 
     private void addToFree(Row row) throws IOException {
-        row.keyField = (int) free;
-        row.write();
+        rows.seek(row.addr);
+        rows.writeLong(free);
         free = row.addr;
         rows.seek(4 + 4 * numOtherFields);
         rows.writeLong(free);
