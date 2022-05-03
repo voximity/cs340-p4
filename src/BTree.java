@@ -162,22 +162,79 @@ public class BTree {
         }
 
         private long removeKey(int key) {
+            if (!isLeaf())
+                return NONE;
+
             int c = count();
-            int branchOffset = isLeaf() ? 0 : 1;
             for (int i = 0; i < c; i++) {
                 if (keys[i] == key) {
+                    long val = children[i];
                     for (int j = i; j < c; j++) {
                         keys[j] = keys[j + 1];
-                        children[j + branchOffset] = children[j + 1 + branchOffset];
+                        children[j] = children[j + 1];
                     }
-                    count = isLeaf() ? -(c - 1) : c - 1;
-                    return children[i + branchOffset];
+                    count = -(c - 1);
+                    return val;
                 }
             }
+
+            return NONE;
+        }
+
+        private int getKeyForChild(long addr) {
+            if (isLeaf())
+                return Integer.MIN_VALUE;
+
+            int i;
+            for (i = 1; i <= count(); i++) {
+                if (children[i] == addr) {
+                    return keys[i - 1];
+                }
+            }
+
+            return Integer.MIN_VALUE;
+        }
+
+        private void removeKeyLeftOf(long addr) {
+            if (isLeaf())
+                return;
+
+            int i;
+            for (i = 1; i <= count(); i++) {
+                if (children[i] == addr) {
+                    break;
+                }
+            }
+
+            for (int j = i; j <= count(); j++) {
+                keys[j - 1] = keys[j];
+                children[j] = children[j + 1];
+            }
+
+            count -= 1;
+        }
+
+        private void removeKeyRightOf(long addr) {
+            if (isLeaf())
+                return;
+
+            int i;
+            for (i = 0; i < count(); i++) {
+                if (children[i] == addr) {
+                    break;
+                }
+            }
+
+            for (int j = i; j < count(); j++) {
+                keys[j] = keys[j + 1];
+                children[j] = children[j + 1];
+            }
+
+            count -= 1;
         }
 
         private boolean tooSmall() {
-            return count() < minKeys();
+            return root == address ? false : count() < minKeys();
         }
     }
 
@@ -349,6 +406,7 @@ public class BTree {
 
     private void borrowFromRight(BTreeNode borrowTo, BTreeNode borrowFrom, BTreeNode parent) throws IOException {
         if (borrowTo.isLeaf()) {
+            System.out.println("Leaf borrowing from right");
             // borrowing between leaves
 
             // grab the first child from borrowFrom
@@ -375,6 +433,7 @@ public class BTree {
             borrowTo.write();
             parent.write();
         } else {
+            System.out.println("Branch borrowing from right");
             // borrowing between branches
 
             long firstChild = borrowFrom.children[0];
@@ -403,6 +462,7 @@ public class BTree {
 
     private void borrowFromLeft(BTreeNode borrowTo, BTreeNode borrowFrom, BTreeNode parent) throws IOException {
         if (borrowTo.isLeaf()) {
+            System.out.println("Leaf borrowing from left");
             // borrowing between leaves
 
             // grab the last child from borrowFrom
@@ -425,6 +485,7 @@ public class BTree {
             borrowTo.write();
             parent.write();
         } else {
+            System.out.println("Branch borrowing from left");
             // borrowing between branches
 
             long lastChild = borrowFrom.children[borrowFrom.count()];
@@ -454,6 +515,95 @@ public class BTree {
         }
     }
 
+    private void mergeIntoLeft(BTreeNode source, BTreeNode dest, BTreeNode parent) throws IOException {
+        if (source.isLeaf()) {
+            System.out.println("Leaf merging into left");
+
+            // insert all source keys into the destination
+            for (int i = 0; i < source.count(); i++) {
+                dest.insertKeyAddr(source.keys[i], source.children[i]);
+            }
+
+            // remove source from the parent
+            parent.removeKeyLeftOf(source.address);
+
+            // add source to the free list
+            addToFree(source);
+
+            // write out dest and parent
+            dest.write();
+            parent.write();
+        } else {
+            System.out.println("Branch merging into left");
+
+            // insert phantom key
+            int key = parent.getKeyForChild(source.address);
+            dest.insertKeyAddr(key, source.children[0]);
+
+            // insert other keys
+            for (int i = 1; i <= source.count(); i++) {
+                dest.insertKeyAddr(source.keys[i - 1], source.children[i]);
+            }
+
+            // remove source from the parent
+            parent.removeKeyLeftOf(source.address);
+
+            // add source to the free list
+            addToFree(source);
+
+            // write out dest and parent
+            dest.write();
+            parent.write();
+        }
+    }
+
+    private void mergeIntoRight(BTreeNode source, BTreeNode dest, BTreeNode parent) throws IOException {
+        if (source.isLeaf()) {
+            System.out.println("Leaf merging into right");
+
+            // insert all source keys into the destination
+            for (int i = 0; i < dest.count(); i++) {
+                dest.insertKeyAddr(source.keys[i], source.children[i]);
+            }
+
+            // remove source from the parent
+            parent.removeKeyRightOf(source.address);
+
+            // add source to the free list
+            addToFree(source);
+
+            // write out dest and parent
+            dest.write();
+            parent.write();
+        } else {
+            System.out.println("Branch merging into right");
+
+            // get the key used to refer to the dest
+            int key = parent.getKeyForChild(dest.address);
+
+            // insert all key/addr pairs past index 0 into dest
+            for (int i = 1; i < source.count(); i++) {
+                dest.insertKeyAddr(source.keys[i], source.children[i]);
+            }
+
+            // insert the far left catchall child as an actual key in the node
+            dest.insertKeyAddr(key, dest.children[0]);
+
+            // the new far left catchall child will be what the source node's was
+            dest.children[0] = source.children[0];
+
+            // remove source from the parent
+            parent.removeKeyRightOf(source.address);
+
+            // add source to the free list
+            addToFree(source);
+
+            // write out dest and parent
+            dest.write();
+            parent.write();
+        }
+    }
+
     public long remove(int key) throws IOException {
         /*
          * If the key is in the Btree, remove the key and return the address of the
@@ -468,6 +618,12 @@ public class BTree {
         if (node.hasKey(key)) {
             // remove it
             removedAddr = node.removeKey(key);
+            node.write();
+
+            if (root == node.address && node.count == 0) {
+                addToFree(node);
+                setRoot(NONE);
+            }
 
             // if the node is too small set tooSmall to true
             if (node.tooSmall()) {
@@ -515,10 +671,10 @@ public class BTree {
                 // combine
                 if (i > 0) {
                     // merge with left node
-
+                    mergeIntoLeft(child, new BTreeNode(node.children[i - 1]), node);
                 } else if (i < node.count()) {
                     // merge with right node
-
+                    mergeIntoRight(child, new BTreeNode(node.children[i + 1]), node);
                 }
 
                 if (node.count() >= minKeys()) {
@@ -649,10 +805,17 @@ public class BTree {
 
         while (true) {
             System.out.print("Key to insert: ");
-            int key = Integer.parseInt(scanner.nextLine());
-            int addr = (int) (Math.random() * 100);
-            System.out.println("Inserting key " + key + ", addr " + addr);
-            myTree.insert(key, addr);
+            String line = scanner.nextLine();
+            if (!line.startsWith("!")) {
+                int key = Integer.parseInt(line);
+                int addr = (int) (Math.random() * 10000);
+                System.out.println("Inserting key " + key + ", addr " + addr);
+                myTree.insert(key, addr);
+            } else {
+                int key = Integer.parseInt(line.substring(1));
+                System.out.println("Removing key " + key);
+                System.out.println("Remove result: " + myTree.remove(key));
+            }
             myTree.print();
             System.out.println("");
         }
