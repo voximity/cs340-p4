@@ -1,3 +1,11 @@
+
+/**
+ * DBTable, an abstraction over the B+Tree implementation.
+ * 
+ * @author Zander Franks
+ * @version 5/3/2022
+ */
+
 import java.io.*;
 import java.util.*;
 

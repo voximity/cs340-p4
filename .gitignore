@@ -3,3 +3,4 @@ lib/
 *.btree
 test_btree
 /t*
+*.zip
