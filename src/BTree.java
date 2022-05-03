@@ -2,24 +2,58 @@ import java.io.*;
 import java.util.*;
 
 public class BTree {
+    /**
+     * The address reference of the lack of a node.
+     */
     private static final long NONE = 0;
 
+    /**
+     * Derive the order from block size given our node file structure.
+     */
     private static int orderFromBlockSize(int blockSize) {
         return blockSize / 12;
     }
 
+    /**
+     * The random access file this B+Tree is referring to.
+     */
     private RandomAccessFile f;
+
+    /**
+     * The order of this B+Tree.
+     */
     private int order;
+
+    /**
+     * The block size of the file.
+     */
     private int blockSize;
+
+    /**
+     * The address of the root node.
+     */
     private long root;
+
+    /**
+     * The address of the head of the free list.
+     */
     private long free;
 
-    boolean debug = true;
+    /**
+     * Prints out some extra garbage when inserting/removing/borrowing/merging.
+     */
+    boolean debug = false;
 
+    /**
+     * The minimum number of keys a node (except the root) can have.
+     */
     private int minKeys() {
         return (int) Math.ceil(order / 2.0) - 1;
     }
 
+    /**
+     * The result of a branch split.
+     */
     private class SplitResult {
         private BTreeNode node;
         private int middle;
@@ -30,10 +64,28 @@ public class BTree {
         }
     }
 
+    /**
+     * A node in the B+Tree.
+     */
     private class BTreeNode {
+        /**
+         * The number of keys in this node. If negative, the node is a leaf.
+         */
         private int count;
+
+        /**
+         * This node's keys.
+         */
         private int[] keys;
+
+        /**
+         * This node's children;
+         */
         private long[] children;
+
+        /**
+         * The address of this node in the random access file.
+         */
         private long address;
 
         public BTreeNode(int count, int[] keys, long[] children) {
@@ -55,11 +107,17 @@ public class BTree {
                 children[i] = f.readLong();
         }
 
+        /**
+         * Given an address, write the node out to the file.
+         */
         private void write(long addr) throws IOException {
             address = addr;
             write();
         }
 
+        /**
+         * Write the node out to the file.
+         */
         private void write() throws IOException {
             f.seek(address);
             f.writeInt(count);
@@ -69,6 +127,9 @@ public class BTree {
                 f.writeLong(children[i]);
         }
 
+        /**
+         * Get the child index for a given key.
+         */
         private int childIdx(int key) {
             int c = count();
             int i = 0;
@@ -77,14 +138,23 @@ public class BTree {
             return i;
         }
 
+        /**
+         * For leaves, get the sibling address.
+         */
         private long sibling() {
             return children[order - 1];
         }
 
+        /**
+         * For leaves, set the sibling address.
+         */
         private void setSibling(long to) {
             children[order - 1] = to;
         }
 
+        /**
+         * Whether or not this node has a given key.
+         */
         private boolean hasKey(int key) {
             for (int i = 0; i < Math.abs(count); i++)
                 if (keys[i] == key)
@@ -92,14 +162,23 @@ public class BTree {
             return false;
         }
 
+        /**
+         * Whether or not this node is a leaf.
+         */
         private boolean isLeaf() {
             return count < 0;
         }
 
+        /**
+         * The number of keys in this node, irrespective of whether or not it is a leaf.
+         */
         private int count() {
             return Math.abs(count);
         }
 
+        /**
+         * Insert a key and address into the node.
+         */
         private void insertKeyAddr(int key, long val) {
             int branchOffset = !isLeaf() ? 1 : 0;
             int i = 0;
@@ -117,6 +196,9 @@ public class BTree {
             count = isLeaf() ? -(count() + 1) : count() + 1;
         }
 
+        /**
+         * Splits this node using leaf-splitting behavior.
+         */
         private BTreeNode splitLeaf() {
             if (!isLeaf())
                 return null;
@@ -137,6 +219,9 @@ public class BTree {
             return split;
         }
 
+        /**
+         * Splits this node using branch (non-leaf node)-splitting behavior.
+         */
         private SplitResult splitBranch() {
             if (isLeaf())
                 return null;
@@ -159,6 +244,9 @@ public class BTree {
             return new SplitResult(split, keys[l]);
         }
 
+        /**
+         * For branches, remove a key and its related child.
+         */
         private long removeKey(int key) {
             if (!isLeaf())
                 return NONE;
@@ -179,6 +267,9 @@ public class BTree {
             return NONE;
         }
 
+        /**
+         * For branches, get the matching key for a child address.
+         */
         private int getKeyForChild(long addr) {
             if (isLeaf())
                 return Integer.MIN_VALUE;
@@ -193,6 +284,9 @@ public class BTree {
             return Integer.MIN_VALUE;
         }
 
+        /**
+         * For branches, remove the key associated with the address given.
+         */
         private void removeKeyLeftOf(long addr) {
             if (isLeaf())
                 return;
@@ -212,25 +306,9 @@ public class BTree {
             count -= 1;
         }
 
-        private void removeKeyRightOf(long addr) {
-            if (isLeaf())
-                return;
-
-            int i;
-            for (i = 0; i < count(); i++) {
-                if (children[i] == addr) {
-                    break;
-                }
-            }
-
-            for (int j = i; j < count(); j++) {
-                keys[j] = keys[j + 1];
-                children[j] = children[j + 1];
-            }
-
-            count -= 1;
-        }
-
+        /**
+         * Whether or not this node is too small and now breaks B+Tree properties.
+         */
         private boolean tooSmall() {
             return root == address ? false : count() < minKeys();
         }
@@ -265,6 +343,9 @@ public class BTree {
         order = orderFromBlockSize(blockSize);
     }
 
+    /**
+     * Get the next address in the free list, moving it forward.
+     */
     private long nextFree() throws IOException {
         if (free == NONE)
             return f.length();
@@ -275,12 +356,18 @@ public class BTree {
         return cur;
     }
 
+    /**
+     * Set the root of the B+Tree to the address given.
+     */
     private void setRoot(long root) throws IOException {
         this.root = root;
         f.seek(0);
         f.writeLong(root);
     }
 
+    /**
+     * Add the given node to the free list.
+     */
     private void addToFree(BTreeNode node) throws IOException {
         f.seek(node.address);
         f.writeLong(free);
@@ -289,6 +376,9 @@ public class BTree {
         f.writeLong(free);
     }
 
+    /**
+     * Insert a key and its associated address into the B+Tree.
+     */
     public boolean insert(int key, long addr) throws IOException {
         /*
          * If key is not a duplicate add key to the B+tree
@@ -408,13 +498,18 @@ public class BTree {
         return true;
     }
 
-    // TODO: LOOK INTO BORROWING MORE CLOSELY
-
+    /**
+     * Cause a node to borrow from another to its right.
+     * 
+     * @param borrowTo   The node receiving the borrowed key/child.
+     * @param borrowFrom The node being borrowed from.
+     * @param parent     The parent of both nodes.
+     */
     private void borrowFromRight(BTreeNode borrowTo, BTreeNode borrowFrom, BTreeNode parent) throws IOException {
         if (borrowTo.isLeaf()) {
+            // borrowing between leaves
             if (debug)
                 System.out.println("Leaf borrowing from right");
-            // borrowing between leaves
 
             // grab the first child from borrowFrom
             int firstKey = borrowFrom.keys[0];
@@ -440,24 +535,29 @@ public class BTree {
             borrowTo.write();
             parent.write();
         } else {
+            // borrowing between branches
             if (debug)
                 System.out.println("Branch borrowing from right");
-            // borrowing between branches
 
+            // grab the first key/child from borrowFrom
+            int firstKey = borrowFrom.keys[0];
             long firstChild = borrowFrom.children[0];
-            for (int i = 0; i < borrowFrom.count() - 1; i++) {
+            borrowFrom.count -= 1;
+            for (int i = 0; i < borrowFrom.count(); i++) {
                 borrowFrom.keys[i] = borrowFrom.keys[i + 1];
                 borrowFrom.children[i] = borrowFrom.children[i + 1];
             }
+            borrowFrom.children[borrowFrom.count()] = borrowFrom.children[borrowFrom.count() + 1];
 
-            BTreeNode firstChildNode = new BTreeNode(firstChild);
-
-            borrowTo.insertKeyAddr(firstChildNode.keys[0], firstChild);
+            // insert into borrowTo
+            borrowTo.keys[borrowTo.count] = parent.getKeyForChild(borrowFrom.address);
+            borrowTo.children[borrowTo.count + 1] = firstChild;
+            borrowTo.count += 1;
 
             // update borrowFrom in the parent
             for (int i = 1; i <= parent.count; i++) {
                 if (parent.children[i] == borrowFrom.address) {
-                    parent.keys[i - 1] = borrowFrom.keys[0];
+                    parent.keys[i - 1] = firstKey;
                     break;
                 }
             }
@@ -468,11 +568,18 @@ public class BTree {
         }
     }
 
+    /**
+     * Cause a node to borrow from another to its left.
+     * 
+     * @param borrowTo   The node receiving the borrowed key/child.
+     * @param borrowFrom The node being borrowed from.
+     * @param parent     The parent of both nodes.
+     */
     private void borrowFromLeft(BTreeNode borrowTo, BTreeNode borrowFrom, BTreeNode parent) throws IOException {
         if (borrowTo.isLeaf()) {
+            // borrowing between leaves
             if (debug)
                 System.out.println("Leaf borrowing from left");
-            // borrowing between leaves
 
             // grab the last child from borrowFrom
             int lastKey = borrowFrom.keys[borrowFrom.count() - 1];
@@ -494,27 +601,31 @@ public class BTree {
             borrowTo.write();
             parent.write();
         } else {
+            // borrowing between branches
             if (debug)
                 System.out.println("Branch borrowing from left");
-            // borrowing between branches
 
+            // take the last key and child out of borrowFrom
+            int lastKey = borrowFrom.keys[borrowFrom.count() - 1];
             long lastChild = borrowFrom.children[borrowFrom.count()];
             borrowFrom.count -= 1;
 
-            for (int i = borrowTo.keys.length - 2; i >= 0; i--) {
+            // insert the child into borrowTo at the beginning
+            for (int i = borrowTo.count() - 1; i >= 0; i--) {
                 borrowTo.keys[i + 1] = borrowTo.keys[i];
             }
-            for (int i = borrowTo.children.length - 2; i >= 0; i--) {
+            for (int i = borrowTo.count(); i >= 0; i--) {
                 borrowTo.children[i + 1] = borrowTo.children[i];
             }
 
-            borrowTo.keys[0] = new BTreeNode(borrowTo.children[1]).keys[0];
+            borrowTo.keys[0] = parent.getKeyForChild(borrowTo.address);
             borrowTo.children[0] = lastChild;
             borrowTo.count += 1;
 
+            // update the key between the two borrows
             for (int i = 1; i <= parent.count(); i++) {
                 if (parent.children[i] == borrowTo.address) {
-                    parent.keys[i - 1] = borrowTo.keys[0];
+                    parent.keys[i - 1] = lastKey;
                     break;
                 }
             }
@@ -525,6 +636,13 @@ public class BTree {
         }
     }
 
+    /**
+     * Cause a node to merge into the node on the left.
+     * 
+     * @param source The node whose contents will be merged out of.
+     * @param dest   The node that will be merged into.
+     * @param parent The parent of the two child nodes.
+     */
     private void mergeIntoLeft(BTreeNode source, BTreeNode dest, BTreeNode parent) throws IOException {
         if (source.isLeaf()) {
             if (debug)
@@ -571,6 +689,12 @@ public class BTree {
         }
     }
 
+    /**
+     * Remove a key from the B+Tree.
+     * 
+     * @return The DBTable address of the removed key, or NONE if nothing was
+     *         removed.
+     */
     public long remove(int key) throws IOException {
         /*
          * If the key is in the Btree, remove the key and return the address of the
@@ -664,6 +788,10 @@ public class BTree {
         return removedAddr;
     }
 
+    /**
+     * Get the search path stack representing the path that must be taken to get to
+     * a particular leaf key.
+     */
     private Stack<BTreeNode> searchPath(int k) throws IOException {
         Stack<BTreeNode> path = new Stack<>();
         if (root == NONE)
@@ -680,6 +808,10 @@ public class BTree {
         return path;
     }
 
+    /**
+     * Search for a particular key in the B+Tree, returning its DBTable row address
+     * or NONE.
+     */
     public long search(int k) throws IOException {
         /*
          * This is an equality search
@@ -699,6 +831,10 @@ public class BTree {
         return NONE;
     }
 
+    /**
+     * Search over keys in a particular range, returning a linked list of DBTable
+     * row addresses.
+     */
     public LinkedList<Long> rangeSearch(int low, int high) throws IOException {
         // PRE: low <= high
         /*
@@ -730,6 +866,9 @@ public class BTree {
         }
     }
 
+    /**
+     * Print off a single node.
+     */
     private void printNode(BTreeNode node, int depth) throws IOException {
         for (int i = 0; i < depth; i++)
             System.out.print("  ");
@@ -738,7 +877,7 @@ public class BTree {
             int count = -node.count;
             System.out.print("- (leaf @ " + node.address + ") count " + count + ", keys: ");
             for (int i = 0; i < count; i++) {
-                System.out.print(node.keys[i]);// + " : " + node.children[i]);
+                System.out.print(node.keys[i]);
                 if (i < count - 1)
                     System.out.print(", ");
             }
@@ -758,6 +897,9 @@ public class BTree {
         }
     }
 
+    /**
+     * Print out the B+Tree.
+     */
     public void print() throws IOException {
         // print the B+Tree to standard output
         // print one node per line
@@ -767,12 +909,19 @@ public class BTree {
         }
     }
 
+    /**
+     * Close the B+Tree.
+     */
     public void close() throws IOException {
         // close the B+Tree. the tree should not be accessed after close is called
         f.close();
     }
 
     public static void main(String[] args) throws IOException {
+        // Interactive test
+        //
+        // Enter a number to insert it,
+        // enter ! followed by a number to remove it
         BTree myTree = new BTree("test_btree", 60);
         Scanner scanner = new Scanner(System.in);
 

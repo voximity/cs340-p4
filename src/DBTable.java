@@ -2,18 +2,53 @@ import java.io.*;
 import java.util.*;
 
 public class DBTable {
+    /**
+     * An address that represents the lack of a row.
+     */
     public static final long NONE = 0;
 
+    /**
+     * The random access file this DBTable interacts with.
+     */
     private RandomAccessFile rows;
+
+    /**
+     * The address of the head of the free list.
+     */
     private long free;
+
+    /**
+     * The number of other fields a DBTable row has.
+     */
     private int numOtherFields;
+
+    /**
+     * The lengths of each other field of a DBTable row.
+     */
     private int[] otherFieldLengths;
 
+    /**
+     * The B+Tree associated with this DBTable.
+     */
     private BTree btree;
 
+    /**
+     * A DBTable row.
+     */
     private class Row {
+        /**
+         * The key of the row.
+         */
         private int keyField;
+
+        /**
+         * The other fields of the row.
+         */
         private char[][] otherFields;
+
+        /**
+         * The address of the row in the file.
+         */
         private long addr;
 
         /*
@@ -43,11 +78,17 @@ public class DBTable {
             }
         }
 
+        /**
+         * Write the row to the file given an address.
+         */
         private void write(long addr) throws IOException {
             this.addr = addr;
             write();
         }
 
+        /**
+         * Write the row to the file.
+         */
         private void write() throws IOException {
             rows.seek(addr);
             rows.writeInt(keyField);
@@ -56,6 +97,10 @@ public class DBTable {
                     rows.writeChar(otherFields[i][j]);
         }
 
+        /**
+         * Get a linked list of strings representing the other string fields in this
+         * row, excluding the null terminators.
+         */
         private LinkedList<String> fields() {
             LinkedList<String> list = new LinkedList<>();
 
@@ -74,6 +119,9 @@ public class DBTable {
         }
     }
 
+    /**
+     * Get the next free address in the free list, shifting it forward.
+     */
     private long nextFree() throws IOException {
         if (free == NONE)
             return rows.length();
@@ -84,6 +132,9 @@ public class DBTable {
         return c;
     }
 
+    /**
+     * Peek at the next free address in the free list. Does not move it forward.
+     */
     private long peekNextFree() throws IOException {
         if (free == NONE)
             return rows.length();
@@ -91,6 +142,9 @@ public class DBTable {
         return free;
     }
 
+    /**
+     * Add a row to the free list.
+     */
     private void addToFree(Row row) throws IOException {
         rows.seek(row.addr);
         rows.writeLong(free);
@@ -144,6 +198,9 @@ public class DBTable {
         btree = new BTree(filename + ".btree");
     }
 
+    /**
+     * Insert a particular key and its string fields to the DBTable.
+     */
     public boolean insert(int key, char[][] fields) throws IOException {
         // PRE: the length of each row is fields matches the expected length
 
@@ -163,6 +220,9 @@ public class DBTable {
         return false;
     }
 
+    /**
+     * Remove a particular key from the DBTable.
+     */
     public boolean remove(int key) throws IOException {
         /*
          * If a row with the key is in the table it is removed and true is returned
@@ -181,6 +241,9 @@ public class DBTable {
         return false;
     }
 
+    /**
+     * Search for a particular key in the DBTable, returning its string fields.
+     */
     public LinkedList<String> search(int key) throws IOException {
         /*
          * If a row with the key is found in the table return a list of the other
@@ -199,6 +262,11 @@ public class DBTable {
         return new LinkedList<>();
     }
 
+    /**
+     * Search the DBTable over a particular range of keys, returning a list of rows
+     * transformed such that each row represents a linked list of its stringified
+     * key and each of its other string fields.
+     */
     public LinkedList<LinkedList<String>> rangeSearch(int low, int high) throws IOException {
         // PRE: low <= high
         /*
@@ -224,6 +292,9 @@ public class DBTable {
         return list;
     }
 
+    /**
+     * Print this DBTable in ascending order by key.
+     */
     public void print() throws IOException {
         // Print the rows to standard output in ascending order (based on the keys)
         // One row per line
@@ -243,10 +314,16 @@ public class DBTable {
         }
     }
 
+    /**
+     * Print this DBTable's B+Tree. Used for debugging.
+     */
     public void printBTree() throws IOException {
         btree.print();
     }
 
+    /**
+     * Close the DBTable.
+     */
     public void close() throws IOException {
         // close the DBTable. The table should not be used after it is closed
         btree.close();
