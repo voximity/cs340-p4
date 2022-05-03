@@ -223,6 +223,7 @@ public class BTreeTest {
             t6.remove(nums[i]);
         }
         System.out.println("Test 6" + s + " after removes");
+        t6.printBTree();
         for (i = 1999; i >= 0; i--) {
             sFields[0] = Arrays.copyOf((new Integer(nums[i])).toString().toCharArray(),
                     15);

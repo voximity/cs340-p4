@@ -14,7 +14,7 @@ public class BTree {
     private long root;
     private long free;
 
-    boolean debug = false;
+    boolean debug = true;
 
     private int minKeys() {
         return (int) Math.ceil(order / 2.0) - 1;
@@ -270,7 +270,8 @@ public class BTree {
             return f.length();
 
         long cur = free;
-        free = new BTreeNode(free).children[0];
+        f.seek(free);
+        free = f.readLong();
         return cur;
     }
 
@@ -281,9 +282,9 @@ public class BTree {
     }
 
     private void addToFree(BTreeNode node) throws IOException {
-        node.children[0] = free;
+        f.seek(node.address);
+        f.writeLong(free);
         free = node.address;
-        node.write();
         f.seek(8);
         f.writeLong(free);
     }
@@ -406,6 +407,8 @@ public class BTree {
 
         return true;
     }
+
+    // TODO: LOOK INTO BORROWING MORE CLOSELY
 
     private void borrowFromRight(BTreeNode borrowTo, BTreeNode borrowFrom, BTreeNode parent) throws IOException {
         if (borrowTo.isLeaf()) {
@@ -578,6 +581,9 @@ public class BTree {
         long removedAddr = NONE;
         boolean tooSmall = false;
         Stack<BTreeNode> path = searchPath(key);
+        if (path.isEmpty())
+            return NONE;
+
         BTreeNode node = path.pop();
         if (node.hasKey(key)) {
             // remove it
@@ -587,6 +593,7 @@ public class BTree {
             if (root == node.address && node.count == 0) {
                 addToFree(node);
                 setRoot(NONE);
+                return removedAddr;
             }
 
             // if the node is too small set tooSmall to true
@@ -641,7 +648,7 @@ public class BTree {
                     mergeIntoLeft(new BTreeNode(node.children[i + 1]), child, node);
                 }
 
-                if (node.count() >= minKeys()) {
+                if (node.count() >= minKeys() || (node.address == root && node.count() >= 1)) {
                     tooSmall = false;
                 }
             }
